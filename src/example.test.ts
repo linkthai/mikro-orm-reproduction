@@ -1,32 +1,78 @@
-import { Entity, MikroORM, PrimaryKey, Property } from '@mikro-orm/sqlite';
+import { Migrator } from "@mikro-orm/migrations";
+import {
+  Entity,
+  ManyToOne,
+  MikroORM,
+  PrimaryKey,
+  Property,
+  Unique
+} from "@mikro-orm/postgresql";
 
 @Entity()
-class User {
+class Guild {
+  @PrimaryKey()
+  id!: number;
+}
 
+@Entity()
+class Vendor {
+  @PrimaryKey()
+  id!: number;
+}
+
+@Unique({ properties: ['vendor', 'guild', 'timestamp', 'timeframe'] })
+@Entity()
+class GuildVendorTally {
   @PrimaryKey()
   id!: number;
 
-  @Property()
-  name: string;
+  @Property({
+    type: 'text',
+  })
+  timeframe: string;
 
-  @Property({ unique: true })
-  email: string;
+  @Property({ type: 'text' })
+  timestamp: string;
 
-  constructor(name: string, email: string) {
-    this.name = name;
-    this.email = email;
+  @ManyToOne({
+    entity: () => Guild,
+    nullable: false,
+  })
+  guild: Guild;
+
+  @ManyToOne({
+    entity: () => Vendor,
+    nullable: false,
+  })
+  vendor: Vendor;
+
+  constructor(timeframe: string, timestamp: string, guild: Guild, vendor: Vendor) {
+    this.timeframe = timeframe;
+    this.timestamp = timestamp;
+    this.guild = guild;
+    this.vendor = vendor;
   }
-
 }
 
 let orm: MikroORM;
 
 beforeAll(async () => {
   orm = await MikroORM.init({
-    dbName: ':memory:',
-    entities: [User],
-    debug: ['query', 'query-params'],
+    dbName: "mikro_orm_test",
+    entities: [GuildVendorTally],
+    debug: ["query", "query-params"],
     allowGlobalContext: true, // only for testing
+    extensions: [Migrator],
+    schemaGenerator: {
+      disableForeignKeys: false,
+    },
+    migrations: {
+      path: './src/migrations',
+      transactional: true,
+      allOrNothing: true,
+      disableForeignKeys: false,
+      snapshot: false,
+    },
   });
   await orm.schema.refreshDatabase();
 });
@@ -35,17 +81,20 @@ afterAll(async () => {
   await orm.close(true);
 });
 
-test('basic CRUD example', async () => {
-  orm.em.create(User, { name: 'Foo', email: 'foo' });
-  await orm.em.flush();
-  orm.em.clear();
+test("check migration", async () => {
+  const migrationNeeded = await orm.migrator.checkMigrationNeeded()
+  const migration = await orm.migrator.createMigration()
+  console.log(migrationNeeded, migration)
 
-  const user = await orm.em.findOneOrFail(User, { email: 'foo' });
-  expect(user.name).toBe('Foo');
-  user.name = 'Bar';
-  orm.em.remove(user);
-  await orm.em.flush();
-
-  const count = await orm.em.count(User, { email: 'foo' });
-  expect(count).toBe(0);
+  expect(migrationNeeded).toBe(false);
 });
+
+// test("check migration again", async () => {
+//   const migrator = orm.getMigrator();
+
+//   const migrationNeeded = await migrator.checkMigrationNeeded()
+//   const migration = await migrator.createMigration()
+//   console.log(migrationNeeded, migration)
+
+//   expect(migrationNeeded).toBe(false);
+// });
