@@ -1,30 +1,65 @@
-import { Entity, MikroORM, PrimaryKey, Property } from '@mikro-orm/sqlite';
+import { Collection, Entity, ManyToOne, MikroORM, OneToMany, OneToOne, PrimaryKey, Property } from '@mikro-orm/postgresql';
 
 @Entity()
-class User {
+class MediaSet {
 
   @PrimaryKey()
   id!: number;
 
-  @Property()
-  name: string;
-
-  @Property({ unique: true })
-  email: string;
-
-  constructor(name: string, email: string) {
-    this.name = name;
-    this.email = email;
-  }
-
+  @OneToMany({
+    entity: () => Media,
+    mappedBy: (media) => media.set,
+  })
+  medias = new Collection<Media>(this);
 }
+
+@Entity() 
+class Media {
+
+  @PrimaryKey()
+  id!: number;
+
+  @ManyToOne({
+    entity: () => MediaSet,
+    nullable: true,
+    index: true,
+    default: null,
+  })
+  set: MediaSet;
+
+  @Property({ type: 'text'})
+  url: string;
+
+  constructor({ url, set }: { url: string; set: MediaSet}) {
+    this.url = url;
+    this.set = set
+  }
+}
+
+@Entity()
+class Product {
+
+  @PrimaryKey()
+  id!: number;
+
+  @OneToOne({
+    entity: () => MediaSet,
+    nullable: false,
+  })
+  imageList: MediaSet;
+
+  constructor({ imageList }: { imageList: MediaSet }) {
+    this.imageList = imageList
+  }
+}
+
 
 let orm: MikroORM;
 
 beforeAll(async () => {
   orm = await MikroORM.init({
     dbName: ':memory:',
-    entities: [User],
+    entities: [Product, MediaSet, Media],
     debug: ['query', 'query-params'],
     allowGlobalContext: true, // only for testing
   });
@@ -36,16 +71,18 @@ afterAll(async () => {
 });
 
 test('basic CRUD example', async () => {
-  orm.em.create(User, { name: 'Foo', email: 'foo' });
+  const mediaSet = new MediaSet()
+  mediaSet.medias.add(new Media({ url: 'test', set: mediaSet }))
+
+  const product = new Product({ imageList: mediaSet })
+  product.id = 0;
+
+  orm.em.create(Product, product);
   await orm.em.flush();
   orm.em.clear();
 
-  const user = await orm.em.findOneOrFail(User, { email: 'foo' });
-  expect(user.name).toBe('Foo');
-  user.name = 'Bar';
-  orm.em.remove(user);
-  await orm.em.flush();
-
-  const count = await orm.em.count(User, { email: 'foo' });
-  expect(count).toBe(0);
+  const currentProduct = await orm.em.findOneOrFail(Product, 0, {
+    fields: ['id', 'imageList.id', 'imageList.medias.id', 'imageList.medias.url'],
+  });
+  expect(currentProduct.imageList.medias.count()).toBe(1);
 });
